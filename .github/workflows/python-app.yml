@@ -1,16 +1,6 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+name: Test Calculadora
 
-name: Python application
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
+on: [pull_request]
 
 jobs:
   build:
@@ -18,25 +8,43 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
-        python-version: ["3.7", "3.8", "3.9", "3.10","3.11"]
-
+        python-version: ["3.7", "3.8", "3.9", "3.10", "3.11"]
+    defaults:
+      run:
+        shell: bash
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v3
-      with:
-        python-version: "3.11"
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Lint with flake8
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
-      run: |
-        pytest
+      - uses: actions/checkout@v2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+      - name: Install and configure Poetry
+        # TODO: workaround for https://github.com/snok/install-poetry/issues/94
+        uses: snok/install-poetry@v1.3.1
+        with:
+          version: 1.1.11
+          virtualenvs-in-project: true
+      - name: Install dependencies
+        run: poetry install
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      - name: Format check with black
+        run: |
+          source $VENV
+          make format-check
+      - name: Typecheck with mypy
+        run: |
+          source $VENV
+          make typecheck
+      - name: Test with pytest (with coverage)
+        run: |
+          source $VENV
+          pytest tests -v --cov=./rich --cov-report=xml:./coverage.xml --cov-report term-missing
+      - name: Upload code coverage
+        uses: codecov/codecov-action@v2
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.xml
+          name: rich
+          flags: unittests
+          env_vars: OS,PYTHON
